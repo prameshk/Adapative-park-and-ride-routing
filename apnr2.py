@@ -71,11 +71,11 @@ def readDelay():
             nodeSet['291'].inNodes.append((tmpIn[3], tmpIn[4]))
             nodeSet[(tmpIn[3], tmpIn[4])].outNodes.append('291')
 
-        for t in range(int(tmpIn[5]) + int(tmpIn[1])*60 - 600, int(tmpIn[5]), 30):
+        for t in range(int(tmpIn[5]) + int(tmpIn[1])*60 - 600, int(tmpIn[5])+ int(tmpIn[1])*60, 30):
             # This link Id is composed of from link, to link, dep Time, state which is the value of delay
             linkId = (tmpIn[6], (tmpIn[3], tmpIn[4]), t, tmpIn[1])
             if linkId not in linkSet:
-                linkSet[linkId] = Links([tmpIn[6], (tmpIn[3], tmpIn[4]), "Waiting", tmpIn[1], t, tmpIn[2], int(tmpIn[5]) - t, 0.1])
+                linkSet[linkId] = Links([tmpIn[6], (tmpIn[3], tmpIn[4]), "Waiting", tmpIn[1], t, tmpIn[2], (int(tmpIn[5]) - t), 0.1])
         if ((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u') not in linkSet:
             linkSet[((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u')] = Links([(tmpIn[3], tmpIn[4]), '291', "Transit", 'u', tmpIn[5], 1.0, tmpIn[7], 0.0])
     inFile.close()
@@ -97,6 +97,7 @@ def readSchedule():
             linkId = (tmpIn[1], (tmpIn[4], tmpIn[3]), t, '0')
             if linkId not in linkSet:
                 linkSet[linkId] = Links([tmpIn[1], (tmpIn[4], tmpIn[3]), "Waiting",  '0', t, 1.0, (int(tmpIn[5]) - t), 0.1])
+                print(linkId)
         if ((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u') not in linkSet:
             linkSet[((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u')] = Links([(tmpIn[4], tmpIn[3]), '291', "Transit", '0', tmpIn[5], 1.0, tmpIn[6], 0.0])
 
@@ -184,7 +185,7 @@ def VI():
 
     print("Starting drama done!")
 
-    for k in range(25):
+    for k in range(23):
         for t in range(36000, 21630, -30):
             for i in nodeSet:
                 if i != '291':
@@ -209,6 +210,8 @@ def VI():
                         tempJhat += newJ[findKeyAgain]*theta[2][-1]
                     Jhat[(i, t)] = round(tempJhat)
                     #print("Jhat", Jhat[(i, t)])
+            if t  == 26000:
+                print("halfway through")
 
 
         count = 0
@@ -223,24 +226,24 @@ def VI():
             continue
 
 
-        for t in range(36000, 21630, -30):
-            for i in nodeSet:
-                if i != '291':
-                    possibleStates = [a for a in stateSet if a[0] == i and a[1] == t]
-                    for theta in possibleStates:
-                        prob = theta[2][-1]
-                        index = theta[2].index(prob)
-                        costs = []
-                        for links in theta[2][:index]:
-                            transitionStates = [a for a in stateSet if a[0] == links[0] and a[1] == int(t + links[2])]
-                            temp = 0
-                            for each in transitionStates:
-                                findKey = [k for k, v in statesName.items() if v == each][0]
-                                temp += oldJ[findKey] * each[2][-1]
-                            costs.append(temp + links[-1])
-                        findKeyAgain = [k for k, v in statesName.items() if v == theta][0]
-                        optInd = costs.index(min(costs))
-                        optPolicy[findKeyAgain] = theta[2][optInd][0]
+    for t in range(36000, 21630, -30):
+        for i in nodeSet:
+            if i != '291':
+                possibleStates = [a for a in stateSet if a[0] == i and a[1] == t]
+                for theta in possibleStates:
+                    prob = theta[2][-1]
+                    index = theta[2].index(prob)
+                    costs = []
+                    for links in theta[2][:index]:
+                        transitionStates = [a for a in stateSet if a[0] == links[0] and a[1] == int(t + links[2])]
+                        temp = 0
+                        for each in transitionStates:
+                            findKey = [k for k, v in statesName.items() if v == each][0]
+                            temp += oldJ[findKey] * each[2][-1]
+                        costs.append(temp + links[-1])
+                    findKeyAgain = [k for k, v in statesName.items() if v == theta][0]
+                    optInd = costs.index(min(costs))
+                    optPolicy[findKeyAgain] = theta[2][optInd][0]
 
 
 
@@ -274,8 +277,13 @@ newJ = {}
 
 Jhat = {}
 optPolicy = {}
-VI()
+#VI()
 
+
+
+
+
+'''
 import pandas as pd
 df = pd.DataFrame([(k[1], labels[k]) for k in labels if k[0] == '269'])
 df.to_csv("recourse", sep='\t', encoding='utf-8')
@@ -362,7 +370,7 @@ Z = pd.pivot_table(df, values='TravelTime',index='Time',columns='Node')
 ax = sns.heatmap(Z, cmap='RdYlGn_r', cbar_kws={'label': 'Travel time (min)'}, vmin=0, vmax=1500)
 ax.invert_yaxis()
 ax.set(xlabel='Links', ylabel='Time')
-plt.savefig('tt3.png', dpi=100)
+plt.savefig('npr.png', dpi=100)
 plt.show()
 
 
@@ -384,8 +392,38 @@ for a in uncongested:
 
 
 
+df = pd.DataFrame(polU, columns=['Node', 'Time', 'Mode'])
+Z = pd.pivot_table(df, values='Mode', index='Node', columns='Time')
+Z.fillna(0, inplace=True)
+import matplotlib.pyplot as plt
+import pandas
+import seaborn.apionly as sns
+from matplotlib.colors import LinearSegmentedColormap
+myColors = ((1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 0.0))
+cmap = sns.cubehelix_palette(start=2.8, rot=.1, light=0.9, n_colors=2)
+ax = sns.heatmap(Z, cmap=cmap)
+colorbar = ax.collections[0].colorbar
+colorbar.set_ticks([0, 1])
+#colorbar.set_yticklabels(['Take PR', 'Take Auto'])
+ax.set_ylabel('PR Node')
+ax.set_xlabel('Time')
+plt.setp(labels, rotation=0)
+plt.savefig('u.png', dpi=100)
+plt.show()
 
 
+
+import pandas as pd
+uncongested = [k for k in pnrPlocies if k[0][2][0][1] == 'c']
+polC =[]
+for a in uncongested:
+    if len(a[1]) == 2:
+        polC.append((a[0][0], a[0][1], 1))
+    else:
+        polC.append((a[0][0], a[0][1], 0))
+
+
+'''
 
 
 
