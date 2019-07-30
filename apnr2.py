@@ -26,6 +26,7 @@ class Links:
         self.prob = float(_tmpIn[5])
         self.travelTime = float(_tmpIn[6])
         self.length = float(_tmpIn[7])
+        self.tripId = _tmpIn[8]
 
 
 class States:
@@ -53,9 +54,9 @@ def readData():
         if tmpIn[2] not in nodeSet[tmpIn[3]].inNodes:
             nodeSet[tmpIn[3]].inNodes.append(tmpIn[2])
         # A link Id is composed of from node, top node, time of departure, congested/uncongested
-        linkId = (tmpIn[2], tmpIn[3], int(tmpIn[9]), tmpIn[10])
+        linkId = (tmpIn[2], tmpIn[3], int(tmpIn[9]), tmpIn[10], "None")
         if linkId not in linkSet:
-            tmpVal = [tmpIn[2], tmpIn[3], tmpIn[1], tmpIn[10], tmpIn[9], tmpIn[11], tmpIn[12], tmpIn[8]]
+            tmpVal = [tmpIn[2], tmpIn[3], tmpIn[1], tmpIn[10], tmpIn[9], tmpIn[11], tmpIn[12], tmpIn[8], "None"]
             linkSet[linkId] = Links(tmpVal)
     inFile.close()
 
@@ -71,18 +72,18 @@ def readDelay():
             nodeSet['291'].inNodes.append((tmpIn[3], tmpIn[4]))
             nodeSet[(tmpIn[3], tmpIn[4])].outNodes.append('291')
 
-        for t in range(int(tmpIn[5]) + int(tmpIn[1])*60 - 600, int(tmpIn[5])+ int(tmpIn[1])*60, 30):
-            # This link Id is composed of from link, to link, dep Time, state which is the value of delay
-            linkId = (tmpIn[6], (tmpIn[3], tmpIn[4]), t, tmpIn[1])
+        for t in range(int(tmpIn[5]) - 600, int(tmpIn[5])+30, 30):
+            # This link Id is composed of from link, to link, dep Time, state, and tripId which is the value of delay
+            linkId = (tmpIn[6], (tmpIn[3], tmpIn[4]), t, tmpIn[1], tmpIn[8])
             if linkId not in linkSet:
-                linkSet[linkId] = Links([tmpIn[6], (tmpIn[3], tmpIn[4]), "Waiting", tmpIn[1], t, tmpIn[2], (int(tmpIn[5]) - t), 0.1])
-        if ((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u') not in linkSet:
-            linkSet[((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u')] = Links([(tmpIn[3], tmpIn[4]), '291', "Transit", 'u', tmpIn[5], 1.0, tmpIn[7], 0.0])
+                linkSet[linkId] = Links([tmpIn[6], (tmpIn[3], tmpIn[4]), "Waiting", tmpIn[1], t, tmpIn[2], (int(tmpIn[5]) - t), 0.1, tmpIn[8]])
+        if ((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u', tmpIn[8]) not in linkSet:
+            linkSet[((tmpIn[3], tmpIn[4]), '291', int(tmpIn[5]), 'u', tmpIn[8])] = Links([(tmpIn[3], tmpIn[4]), '291', "Transit", 'u', tmpIn[5], 1.0, tmpIn[7], 0.0, tmpIn[8]])
     inFile.close()
 
 
 def readSchedule():
-    inFile = open("schedule.dat")
+    inFile = open("scheduleTransit.dat")
     tmpIn = inFile.readline().strip().split("\t")
     for x in inFile:
         tmpIn = x.strip().split("\t")
@@ -93,13 +94,12 @@ def readSchedule():
             nodeSet[(tmpIn[4], tmpIn[3])].outNodes.append('291')
             nodeSet['291'].inNodes.append((tmpIn[4], tmpIn[3]))
         # This linkId is composed of from node, to node, departure time, state
-        for t in range(int(tmpIn[5]) - 600 , int(tmpIn[5]), 30):
-            linkId = (tmpIn[1], (tmpIn[4], tmpIn[3]), t, '0')
+        for t in range(int(tmpIn[5]) - 600 , int(tmpIn[5])+30, 30):
+            linkId = (tmpIn[1], (tmpIn[4], tmpIn[3]), t, '0', tmpIn[7])
             if linkId not in linkSet:
-                linkSet[linkId] = Links([tmpIn[1], (tmpIn[4], tmpIn[3]), "Waiting",  '0', t, 1.0, (int(tmpIn[5]) - t), 0.1])
-                print(linkId)
-        if ((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u') not in linkSet:
-            linkSet[((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u')] = Links([(tmpIn[4], tmpIn[3]), '291', "Transit", '0', tmpIn[5], 1.0, tmpIn[6], 0.0])
+                linkSet[linkId] = Links([tmpIn[1], (tmpIn[4], tmpIn[3]), "Waiting",  '0', t, 1.0, (int(tmpIn[5]) - t), 0.1, tmpIn[7]])
+        if ((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u', tmpIn[7]) not in linkSet:
+            linkSet[((tmpIn[4], tmpIn[3]), '291', int(tmpIn[5]), 'u', tmpIn[7])] = Links([(tmpIn[4], tmpIn[3]), '291', "Transit", '0', tmpIn[5], 1.0, tmpIn[6], 0.0, tmpIn[7]])
 
     inFile.close()
     print(len(nodeSet), "nodes")
@@ -113,21 +113,27 @@ def createStates():
         for t in range(36000, 21630, -30):
             possTrans = [a for a in linkSet if linkSet[a].fromNode == n and linkSet[a].depTime == t]
             if len(possTrans) != 0:
-                outNodeStates = {linkSet[a].toNode: [] for a in possTrans}
+                outNodeStates = {(linkSet[a].toNode, linkSet[a].tripId): [] for a in possTrans}
                 for l in outNodeStates:
-                    tempList = [(linkSet[a].toNode, linkSet[a].depTime, linkSet[a].state, linkSet[a].travelTime, linkSet[a].prob) for a in possTrans if a[1] == l]
+                    tempList = [(linkSet[a].toNode, linkSet[a].depTime, linkSet[a].state, linkSet[a].travelTime, linkSet[a].prob, linkSet[a].tripId) for a in possTrans if a[1] == l[0] and a[4] == l[1]]
                     for k in tempList:
                         outNodeStates[l].append(k)
                 z = outNodeStates.values()
                 thetaList = list(it.product(*z))
+                sumProb = 0
                 for theta in thetaList:
                     p = []
                     prob = 1
                     for q in theta:
-                        p.append((q[0], q[2], q[3]))
+                        p.append((q[0], q[2], q[3], q[5]))
                         prob = prob*q[4]
                     p.append(round(prob, 3))
+                    sumProb = sumProb + prob
+                    #print((n, t, p))
                     stateSet.append((n, t, p))
+                if round(sumProb) != 1:
+                    print("Your probabilities don't sum to one!")
+                    #print((sumProb, n, t))
 
 
 
@@ -175,8 +181,8 @@ def LabelSetting():
 def VI():
     for t in range(50010, 21630, -30):
         lastKey = sorted(statesName.keys())[-1]
-        stateSet.append(('291', t, [('291', 'u', 0.0), 1]))
-        statesName[lastKey + 1] = ('291', t, [('291', 'u', 0.0), 1])
+        stateSet.append(('291', t, [('291', 'u', 0.0, 'None'), 1]))
+        statesName[lastKey + 1] = ('291', t, [('291', 'u', 0.0, 'None'), 1])
         Jhat[('291', t)] = 0
         oldJ[lastKey + 1] = 0
 
@@ -201,7 +207,7 @@ def VI():
                             for each in transitionStates:
                                 findKey = [k for k, v in statesName.items() if v == each][0]
                                 temp += oldJ[findKey]*each[2][-1]
-                            costs.append(temp + links[-1])
+                            costs.append(temp + links[-2])
                         #optInd = costs.index(min(costs))
 
                         findKeyAgain = [k for k, v in statesName.items() if v == theta][0]
@@ -240,7 +246,7 @@ def VI():
                         for each in transitionStates:
                             findKey = [k for k, v in statesName.items() if v == each][0]
                             temp += oldJ[findKey] * each[2][-1]
-                        costs.append(temp + links[-1])
+                        costs.append(temp + links[-2])
                     findKeyAgain = [k for k, v in statesName.items() if v == theta][0]
                     optInd = costs.index(min(costs))
                     optPolicy[findKeyAgain] = theta[2][optInd][0]
@@ -261,8 +267,8 @@ def VI():
 nodeSet = {}
 linkSet = {}
 readData()
-readDelay()
-readSchedule()
+#readDelay()
+#readSchedule()
 stateSet = []
 
 labels ={}
@@ -277,13 +283,13 @@ newJ = {}
 
 Jhat = {}
 optPolicy = {}
-#VI()
+VI()
 
 
 
 
 
-'''
+# Comparing the online shortest path with the expected a priori shortest path
 import pandas as pd
 df = pd.DataFrame([(k[1], labels[k]) for k in labels if k[0] == '269'])
 df.to_csv("recourse", sep='\t', encoding='utf-8')
@@ -353,10 +359,11 @@ plt.xticks(rotation=70)
 
 
 
-
-df = pd.DataFrame([(k[0], k[1], labels[k]) for k in labels if k[1] <= 32910 and len(k[0]) != 2])
+# Creating a heat map of expected cost
+df = pd.DataFrame([(k[0], k[1], Jhat[k]) for k in Jhat if k[1] <= 32910 and len(k[0]) != 2])
+#df = pd.DataFrame([(k[0], k[1], labels[k]) for k in labels if k[1] <= 32910 and len(k[0]) != 2])
 df.columns = ["Node", "Time", "TravelTime"]
-
+df['Time'] = pd.to_datetime(df.Time, unit='s').dt.strftime('%H:%M:%S').astype(str).values.tolist()
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -367,11 +374,12 @@ plt.rc('font', family='serif', size = 25)
 plt.rcParams['figure.figsize'] = 15, 5
 
 Z = pd.pivot_table(df, values='TravelTime',index='Time',columns='Node')
-ax = sns.heatmap(Z, cmap='RdYlGn_r', cbar_kws={'label': 'Travel time (min)'}, vmin=0, vmax=1500)
+ax = sns.heatmap(Z, cmap='RdYlGn_r', cbar_kws={'label': 'Travel time (sec)'}, vmin=0, vmax=1500)
 ax.invert_yaxis()
-ax.set(xlabel='Links', ylabel='Time')
-plt.savefig('npr.png', dpi=100)
+ax.set(xlabel='Links', ylabel='Clock')
+plt.savefig('heatExp.png', dpi=100)
 plt.show()
+
 
 
 
@@ -392,12 +400,16 @@ for a in uncongested:
 
 
 
-df = pd.DataFrame(polU, columns=['Node', 'Time', 'Mode'])
+df = pd.DataFrame(polC, columns=['Node', 'Time', 'Mode'])
+df['Time'] = pd.to_datetime(df.Time, unit='s').dt.strftime('%H:%M:%S').astype(str).values.tolist()
 Z = pd.pivot_table(df, values='Mode', index='Node', columns='Time')
 Z.fillna(0, inplace=True)
 import matplotlib.pyplot as plt
 import pandas
 import seaborn.apionly as sns
+plt.rc('font', family='serif', size = 20)
+plt.rcParams['figure.figsize'] = 18, 15
+
 from matplotlib.colors import LinearSegmentedColormap
 myColors = ((1.0, 0.0, 0.0, 1.0), (0.0, 1.0, 0.0, 0.0))
 cmap = sns.cubehelix_palette(start=2.8, rot=.1, light=0.9, n_colors=2)
@@ -405,9 +417,9 @@ ax = sns.heatmap(Z, cmap=cmap)
 colorbar = ax.collections[0].colorbar
 colorbar.set_ticks([0, 1])
 #colorbar.set_yticklabels(['Take PR', 'Take Auto'])
-ax.set_ylabel('PR Node')
-ax.set_xlabel('Time')
-plt.setp(labels, rotation=0)
+ax.set_ylabel('PNR Node')
+ax.set_xlabel('Clock')
+#plt.setp(labels, rotation=0)
 plt.savefig('u.png', dpi=100)
 plt.show()
 
@@ -423,7 +435,6 @@ for a in uncongested:
         polC.append((a[0][0], a[0][1], 0))
 
 
-'''
 
 
 
